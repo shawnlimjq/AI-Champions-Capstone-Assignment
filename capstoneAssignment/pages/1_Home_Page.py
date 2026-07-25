@@ -5,15 +5,6 @@ st.set_page_config(
     layout="wide"
 )
 
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-if "login_error" not in st.session_state:
-    st.session_state.login_error = ""
-if "login_role" not in st.session_state:
-    st.session_state.login_role = ""
-if "current_user" not in st.session_state:
-    st.session_state.current_user = ""
-
 st.write("# Welcome to CPF Schemes Self Help Portal! 👋")
 st.markdown(
     """
