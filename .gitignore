@@ -1,0 +1,9 @@
+capstoneAssignment/Lib/*
+capstoneAssignment/.env
+capstoneAssignment/.streamlit/*
+capstoneAssignment/pyvenv.cfg
+capstoneAssignment/Scripts/*
+capstoneAssignment/etc/jupyter/nbconfig/notebook.d/pydeck.json
+capstoneAssignment/share/jupyter/nbextensions/pydeck/extensionRequires.js
+capstoneAssignment/share/jupyter/nbextensions/pydeck/index.js
+capstoneAssignment/share/jupyter/nbextensions/pydeck/index.js.map
