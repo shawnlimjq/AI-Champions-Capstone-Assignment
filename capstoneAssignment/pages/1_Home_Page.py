@@ -42,6 +42,7 @@ if st.session_state.logged_in:
         st.session_state.login_error = ""
         st.session_state.login_role = ""
         st.session_state.current_user = ""
+        st.rerun()
 
     if st.session_state.logged_in:
         if st.session_state.login_role == "admin":
@@ -88,13 +89,13 @@ else:
             st.session_state.login_role = "admin"
             st.session_state.current_user = username
             st.session_state.login_error = ""
-            st.experimental_rerun()
+            st.rerun()
         elif username in regular_ids and password == regular_password:
             st.session_state.logged_in = True
             st.session_state.login_role = "regular"
             st.session_state.current_user = username
             st.session_state.login_error = ""
-            st.experimental_rerun()
+            st.rerun()
         else:
             if username in admin_ids or username in regular_ids:
                 st.session_state.login_error = "Password is incorrect."
