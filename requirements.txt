@@ -1,3 +1,5 @@
 streamlit
 beautifulsoup4
 openai
+langchain
+langchain_community
