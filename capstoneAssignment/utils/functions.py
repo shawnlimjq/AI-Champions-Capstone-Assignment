@@ -14,7 +14,7 @@ load_dotenv()
 
 embeddings = OpenAIEmbeddings(
     model='text-embedding-3-small',
-    api_key=os.environ['API_KEY'],)
+    api_key=st.secrets["API_KEY"],)
 not_found = "I couldn't find that information in the uploaded document."
 system_prompt_no_doc = "You are a helpful assistant."
 persist_directory = "vectorstore"

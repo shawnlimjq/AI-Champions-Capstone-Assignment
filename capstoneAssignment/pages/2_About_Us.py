@@ -1,6 +1,6 @@
 import streamlit as st
 
-st.set_page_config(page_title="Plotting Demo", page_icon="📈")
+st.set_page_config(page_title="About Us", page_icon="👨🏻‍💻")
 
 st.markdown("# About Us")
 st.write(

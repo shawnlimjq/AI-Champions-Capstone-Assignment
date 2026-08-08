@@ -2,7 +2,7 @@ import streamlit as st
 
 home_page = st.Page("pages/1_Home_Page.py", title="Home", default=True)
 about_us_page = st.Page("pages/2_About_Us.py", title="About Us")
-crawl_ai_page = st.Page("pages/3_Crawl_AI_Data.py", title="Crawl AI Data")
+methodology_page = st.Page("pages/3_Methodology.py", title="Methodology")
 chat_bot_page = st.Page("pages/4_Chat_Bot.py", title="Chat Bot")
 file_uploader_page = st.Page("pages/5_File_Uploader.py", title="File Uploader")
 # admin_page = st.Page("admin.py", title="Admin Panel", icon=":gear:")
@@ -21,13 +21,13 @@ if "current_user" not in st.session_state:
 
 if st.session_state.login_role =="":
     # Public layout for logged-out users
-    pages_list = [home_page, about_us_page]
+    pages_list = [home_page, about_us_page, methodology_page]
 elif st.session_state.login_role == "regular":
     # User-only layout
-    pages_list = [home_page, about_us_page, chat_bot_page]
+    pages_list = [home_page, about_us_page, methodology_page, chat_bot_page]
 elif st.session_state.login_role == "admin":
     # Admin layout can see everything
-    pages_list = [home_page, about_us_page, crawl_ai_page, chat_bot_page, file_uploader_page]
+    pages_list = [home_page, about_us_page, methodology_page, chat_bot_page, file_uploader_page]
 
 # 4. Generate the navigation sidebar and run the page
 nav = st.navigation(

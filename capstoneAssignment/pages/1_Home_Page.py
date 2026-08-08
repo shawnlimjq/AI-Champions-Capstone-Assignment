@@ -2,6 +2,7 @@ import streamlit as st
 
 st.set_page_config(
     page_title="CPF Schemes Self Help Portal", 
+    page_icon="🏡",
     layout="wide"
 )
 
