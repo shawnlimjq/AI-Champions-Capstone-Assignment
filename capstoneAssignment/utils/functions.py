@@ -11,10 +11,10 @@ from langchain_community.vectorstores import Chroma
 from langchain_openai import OpenAIEmbeddings
 
 load_dotenv()
-st.write("Available secrets:", list(st.secrets.keys()))
+secrets = st.secrets.get("key", {})
 embeddings = OpenAIEmbeddings(
     model='text-embedding-3-small',
-    api_key=st.secrets["API_KEY"],)
+    api_key=secrets["API_KEY"],)
 not_found = "I couldn't find that information in the uploaded document."
 system_prompt_no_doc = "You are a helpful assistant."
 persist_directory = "vectorstore"

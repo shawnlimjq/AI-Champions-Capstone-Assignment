@@ -10,8 +10,8 @@ st.title("💬 Chat bot")
 from dotenv import load_dotenv
 load_dotenv()
 
-
-client = OpenAI(api_key=os.environ["API_KEY"])
+secrets = st.secrets.get("key", {})
+client = OpenAI(api_key=secrets["API_KEY"])
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
