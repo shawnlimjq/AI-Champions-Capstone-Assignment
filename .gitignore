@@ -8,3 +8,4 @@ capstoneAssignment/share/jupyter/nbextensions/pydeck/extensionRequires.js
 capstoneAssignment/share/jupyter/nbextensions/pydeck/index.js
 capstoneAssignment/share/jupyter/nbextensions/pydeck/index.js.map
 capstoneAssignment/utils/__pycache__/*
+vectorstore/*
