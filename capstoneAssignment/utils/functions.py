@@ -11,7 +11,7 @@ from langchain_community.vectorstores import Chroma
 from langchain_openai import OpenAIEmbeddings
 
 load_dotenv()
-
+st.write("Available secrets:", list(st.secrets.keys()))
 embeddings = OpenAIEmbeddings(
     model='text-embedding-3-small',
     api_key=st.secrets["API_KEY"],)
