@@ -11,6 +11,7 @@ Features:
 - Automatically renders a table or chart when the response contains structured data.
 """
 
+import os
 import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
@@ -32,7 +33,7 @@ st.title("💬 Chat bot")
 
 load_dotenv()
 secrets = st.secrets.get("credentials", {})
-client = OpenAI(api_key=secrets["API_KEY"])
+client = OpenAI(api_key=secrets.get("API_KEY", os.getenv("API_KEY", "")))
 
 
 def has_uploaded_documents() -> bool:

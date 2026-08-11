@@ -30,8 +30,9 @@ load_dotenv()
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 _secrets = st.secrets.get("credentials", {})
-embeddings = OpenAIEmbeddings(model="text-embedding-3-small", api_key=_secrets["API_KEY"])
-openai_client = OpenAI(api_key=_secrets["API_KEY"])
+_api_key = _secrets.get("API_KEY", os.getenv("API_KEY", ""))
+embeddings = OpenAIEmbeddings(model="text-embedding-3-small", api_key=_api_key)
+openai_client = OpenAI(api_key=_api_key)
 
 persist_directory = "vectorstore"
 collection_name = "cpf_data"
