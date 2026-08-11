@@ -1,88 +1,119 @@
+"""
+utils/functions.py
+------------------
+Shared utilities for the CPF Schemes Self-Help Portal.
+
+Responsibilities:
+- Document loading, chunking, and vector store management (ChromaDB)
+- RAG context retrieval and system prompt construction
+- AI-generated suggested prompts (document-based and conversation follow-ups)
+- Visualization data extraction from LLM responses
+"""
+
 import json
-import tempfile
 import os
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
-import streamlit as st
 from dotenv import load_dotenv
-from langchain_community.document_loaders import Docx2txtLoader, PyPDFLoader, TextLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores import Chroma
+from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from openai import OpenAI
+import streamlit as st
 
 load_dotenv()
-secrets = st.secrets.get("credentials", {})
-embeddings = OpenAIEmbeddings(
-    model='text-embedding-3-small',
-    api_key=secrets["API_KEY"],)
-openai_client = OpenAI(api_key=secrets["API_KEY"])
-not_found = "I couldn't find that information in the uploaded document."
-system_prompt_no_doc = "You are a helpful assistant."
+
+# ── Configuration ─────────────────────────────────────────────────────────────
+_secrets = st.secrets.get("credentials", {})
+embeddings = OpenAIEmbeddings(model="text-embedding-3-small", api_key=_secrets["API_KEY"])
+openai_client = OpenAI(api_key=_secrets["API_KEY"])
+
 persist_directory = "vectorstore"
 collection_name = "cpf_data"
 
-def process_uploaded_files(files, chunk_size, chunk_overlap):
+_NOT_FOUND = "I couldn't find that information in the uploaded document."
+_SUGGESTED_PROMPTS_ID = "__suggested_prompts__"
+
+
+# ── Internal helpers ──────────────────────────────────────────────────────────
+
+def _get_vectorstore() -> Chroma:
+    """Return a ChromaDB vectorstore instance."""
+    return Chroma(
+        collection_name=collection_name,
+        persist_directory=persist_directory,
+        embedding_function=embeddings,
+    )
+
+
+def _strip_code_fences(text: str) -> str:
+    """Remove markdown code fences from an LLM response."""
+    if text.startswith("```"):
+        text = "\n".join(
+            line for line in text.splitlines() if not line.strip().startswith("```")
+        ).strip()
+    return text
+
+
+# ── Document ingestion ────────────────────────────────────────────────────────
+
+def process_uploaded_files(files, chunk_size: int, chunk_overlap: int) -> None:
+    """
+    Load, chunk, embed, and index a list of uploaded PDF files into ChromaDB.
+    Also generates and stores 3 suggested questions based on the content.
+
+    Args:
+        files: Iterable of file-like objects with a `.name` attribute (PDF only).
+        chunk_size: Maximum character length of each text chunk.
+        chunk_overlap: Number of overlapping characters between consecutive chunks.
+    """
     if not files:
         return
 
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size, chunk_overlap=chunk_overlap
-    )
+    splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
     all_chunks = []
 
     for uploaded_file in files:
-        documents = load_uploaded_file(uploaded_file)
+        documents = _load_pdf(uploaded_file)
         chunks = splitter.split_documents(documents)
         if not chunks:
             continue
-        print(f"\nFirst chunk preview from {uploaded_file.name}:\n{chunks[0].page_content}")
         all_chunks.extend(chunks)
 
     if not all_chunks:
         raise ValueError("No document content could be extracted from the uploaded files.")
 
-    build_vector_store(all_chunks)
+    _build_vector_store(all_chunks)
     generate_suggested_prompts(all_chunks)
 
 
-def load_uploaded_file(uploaded_file):
+def _load_pdf(uploaded_file) -> list:
+    """
+    Write an uploaded file to a temporary path, load it with PyPDFLoader,
+    and stamp each page with upload metadata.
+
+    Returns:
+        List of LangChain Document objects.
+    """
     file_name = Path(getattr(uploaded_file, "name", "uploaded_file")).name
-    suffix = Path(file_name).suffix.lower()
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
     try:
-        if hasattr(uploaded_file, "getvalue"):
-            data = uploaded_file.getvalue()
-        elif hasattr(uploaded_file, "read"):
-            data = uploaded_file.read()
-        else:
-            raise ValueError("Unsupported file type")
-
+        data = uploaded_file.getvalue() if hasattr(uploaded_file, "getvalue") else uploaded_file.read()
         tmp.write(data)
         tmp.flush()
         tmp.close()
 
-        if suffix == ".pdf":
-            loader = PyPDFLoader(tmp.name)
-            documents = loader.load()
-        elif suffix == ".txt":
-            loader = TextLoader(tmp.name, encoding="utf-8")
-            documents = loader.load()
-        elif suffix == ".docx":
-            loader = Docx2txtLoader(tmp.name)
-            documents = loader.load()
-        else:
-            raise ValueError(f"Unsupported file extension: {suffix}")
-
+        documents = PyPDFLoader(tmp.name).load()
         uploaded_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-        for document in documents:
-            document.metadata["uploaded_file_name"] = file_name
-            document.metadata["source"] = file_name
-            document.metadata["uploaded_at"] = uploaded_at
-
+        for doc in documents:
+            doc.metadata["uploaded_file_name"] = file_name
+            doc.metadata["source"] = file_name
+            doc.metadata["uploaded_at"] = uploaded_at
         return documents
     finally:
         tmp.close()
@@ -90,24 +121,27 @@ def load_uploaded_file(uploaded_file):
             os.remove(tmp.name)
 
 
-def build_vector_store(chunks):
-    print("Building vector store (calls OpenAI embeddings API)...")
-    vectorstore = Chroma(
-        collection_name=collection_name,
-        persist_directory=persist_directory,
-        embedding_function=embeddings,
-    )
+def _build_vector_store(chunks: list) -> None:
+    """Embed chunks and upsert them into ChromaDB."""
+    vectorstore = _get_vectorstore()
     ids = [
-        f"{chunk.metadata.get('uploaded_file_name', 'document')}-{index}-{uuid4().hex}"
-        for index, chunk in enumerate(chunks)
+        f"{chunk.metadata.get('uploaded_file_name', 'document')}-{i}-{uuid4().hex}"
+        for i, chunk in enumerate(chunks)
     ]
     vectorstore.add_documents(chunks, ids=ids)
     vectorstore.persist()
-    print(f"\u2705 Vector store built with {vectorstore._collection.count()} vectors")
 
 
-def generate_suggested_prompts(chunks):
-    """Ask OpenAI to generate 3 suggested prompts based on document content and store in ChromaDB."""
+# ── Suggested prompts ─────────────────────────────────────────────────────────
+
+def generate_suggested_prompts(chunks: list) -> None:
+    """
+    Ask GPT-4o-mini to generate 3 questions from document content and persist
+    them as a sentinel document in ChromaDB so they survive page reloads.
+
+    Args:
+        chunks: List of LangChain Document chunks (first 10 are sampled).
+    """
     sample_text = "\n\n".join(c.page_content for c in chunks[:10])
     response = openai_client.chat.completions.create(
         model="gpt-4o-mini",
@@ -115,49 +149,35 @@ def generate_suggested_prompts(chunks):
             {
                 "role": "system",
                 "content": (
-                    "You are a helpful assistant. Given the following document excerpts, "
-                    "generate exactly 3 concise, specific questions a user might want to ask about the content. "
-                    "Return ONLY a JSON array of 3 question strings, e.g. [\"Q1\", \"Q2\", \"Q3\"]."
+                    "Given the following document excerpts, generate exactly 3 concise, "
+                    "specific questions a user might want to ask about the content. "
+                    'Return ONLY a JSON array of 3 strings, e.g. ["Q1", "Q2", "Q3"].'
                 ),
             },
             {"role": "user", "content": sample_text},
         ],
     )
-    raw = response.choices[0].message.content.strip()
-    # Strip markdown code fences if present
-    if raw.startswith("```"):
-        raw = "\n".join(
-            line for line in raw.splitlines()
-            if not line.strip().startswith("```")
-        ).strip()
-    prompts = json.loads(raw)
+    prompts = json.loads(_strip_code_fences(response.choices[0].message.content.strip()))
 
-    vectorstore = Chroma(
-        collection_name=collection_name,
-        persist_directory=persist_directory,
-        embedding_function=embeddings,
-    )
-    # Store prompts as a special sentinel document in the collection
-    from langchain_core.documents import Document
+    vectorstore = _get_vectorstore()
     doc = Document(
-        page_content="__suggested_prompts__",
+        page_content=_SUGGESTED_PROMPTS_ID,
         metadata={"type": "suggested_prompts", "prompts": json.dumps(prompts)},
     )
-    vectorstore.add_documents([doc], ids=["__suggested_prompts__"])
+    vectorstore.add_documents([doc], ids=[_SUGGESTED_PROMPTS_ID])
     vectorstore.persist()
-    print(f"✅ Suggested prompts stored: {prompts}")
 
 
-def get_suggested_prompts():
-    """Retrieve stored suggested prompts from ChromaDB. Returns a list of strings."""
+def get_suggested_prompts() -> list[str]:
+    """
+    Retrieve the document-based suggested prompts stored in ChromaDB.
+
+    Returns:
+        List of question strings, or an empty list if none are stored.
+    """
     try:
-        vectorstore = Chroma(
-            collection_name=collection_name,
-            persist_directory=persist_directory,
-            embedding_function=embeddings,
-        )
-        result = vectorstore._collection.get(
-            ids=["__suggested_prompts__"], include=["metadatas"]
+        result = _get_vectorstore()._collection.get(
+            ids=[_SUGGESTED_PROMPTS_ID], include=["metadatas"]
         )
         metadatas = result.get("metadatas") or []
         if metadatas and metadatas[0].get("prompts"):
@@ -166,92 +186,133 @@ def get_suggested_prompts():
         pass
     return []
 
-def clear_vector_store():
-    vectorstore = Chroma(
-        collection_name=collection_name,
-        persist_directory=persist_directory,
-        embedding_function=embeddings,
-    )
-    existing_collections = vectorstore._client.list_collections()
-    existing_collection_names = {
-        item.name if hasattr(item, "name") else item for item in existing_collections
-    }
-    if collection_name in existing_collection_names:
-        vectorstore._client.delete_collection(collection_name)
-    if "vectorstore" in st.session_state:
-        del st.session_state.vectorstore
 
-def retrieve_context(vectorstore, query, k=4):
-    retriever = vectorstore.as_retriever(search_kwargs={"k": k})
-    docs = retriever.invoke(query)
-    context = "---".join([doc.page_content for doc in docs])
-    return context, docs
-
-def build_rag_system_prompt(context):
-    return (
-        "You are a helpful assistant. Answer the user's question using ONLY "
-        "the information provided in the context below. "
-        f"If the answer is not in the context, say: {not_found} "
-        "If your answer contains numerical data that could be shown as a table or chart, "
-        "describe it briefly in prose but DO NOT format it as a markdown table or list of numbers — "
-        "a separate visualization will be generated and displayed automatically. "
-        f"Context:{context}"
-    )
-
-def system_prompt_with_context(prompt):
-    retrieved_docs = []
-    st.session_state.vectorstore = Chroma(
-            collection_name=collection_name,
-            persist_directory=persist_directory,
-            embedding_function=embeddings
-        )
-    if "vectorstore" in st.session_state:
-        context, retrieved_docs = retrieve_context(
-            st.session_state.vectorstore, prompt, k=10
-        )
-        system_prompt = build_rag_system_prompt(context)
-    else:
-        system_prompt = system_prompt_no_doc
-    return system_prompt
-
-
-def extract_visualization_data(response_text):
+def generate_followup_suggestions(messages: list[dict]) -> list[str]:
     """
-    Ask the LLM whether the response contains data suitable for a table or chart.
-    Returns a dict with keys:
-      - "type": "table" | "bar_chart" | "line_chart" | "none"
-      - "title": str
-      - "columns": list[str]   (for table/chart)
-      - "rows": list[list]     (for table/chart, each inner list matches columns)
-    Returns None if the response is not suitable for visualization.
+    Generate 3 follow-up question suggestions based on recent conversation history.
+
+    Args:
+        messages: Full conversation as a list of {"role": str, "content": str} dicts.
+                  Only the last 6 messages (3 turns) are used.
+
+    Returns:
+        List of 3 question strings.
     """
-    check_response = openai_client.chat.completions.create(
+    history = "\n".join(
+        f"{m['role'].capitalize()}: {m['content']}" for m in messages[-6:]
+    )
+    response = openai_client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
             {
                 "role": "system",
                 "content": (
-                    "You analyse assistant responses and decide if they contain data "
-                    "that can be displayed as a table or chart. "
-                    "If yes, extract the data and return ONLY a JSON object with these keys:\n"
+                    "Based on the conversation below, generate exactly 3 concise follow-up questions "
+                    "the user might want to ask next. "
+                    'Return ONLY a JSON array of 3 strings, e.g. ["Q1", "Q2", "Q3"]. '
+                    "Do not include markdown fences or any other text."
+                ),
+            },
+            {"role": "user", "content": history},
+        ],
+    )
+    return json.loads(_strip_code_fences(response.choices[0].message.content.strip()))
+
+
+# ── RAG pipeline ──────────────────────────────────────────────────────────────
+
+def retrieve_context(vectorstore: Chroma, query: str, k: int = 4) -> tuple[str, list]:
+    """
+    Retrieve the top-k most relevant document chunks for a query.
+
+    Args:
+        vectorstore: ChromaDB vectorstore instance.
+        query: User query string.
+        k: Number of chunks to retrieve.
+
+    Returns:
+        Tuple of (concatenated context string, list of Document objects).
+    """
+    docs = vectorstore.as_retriever(search_kwargs={"k": k}).invoke(query)
+    context = "---".join(doc.page_content for doc in docs)
+    return context, docs
+
+
+def build_rag_system_prompt(context: str) -> str:
+    """
+    Build a RAG system prompt that grounds the LLM to the retrieved context.
+
+    Args:
+        context: Concatenated text of retrieved document chunks.
+
+    Returns:
+        System prompt string.
+    """
+    return (
+        "You are a helpful assistant. Answer the user's question using ONLY "
+        "the information provided in the context below. "
+        f"If the answer is not in the context, say: {_NOT_FOUND} "
+        "If your answer contains numerical data that could be shown as a table or chart, "
+        "describe it briefly in prose but DO NOT format it as a markdown table or list of numbers — "
+        "a separate visualization will be generated and displayed automatically. "
+        f"Context: {context}"
+    )
+
+
+def system_prompt_with_context(prompt: str) -> str:
+    """
+    Build the full system prompt for a user query by retrieving relevant context
+    from ChromaDB and injecting it into the RAG prompt.
+
+    Args:
+        prompt: The user's query.
+
+    Returns:
+        System prompt string with injected context.
+    """
+    vectorstore = _get_vectorstore()
+    st.session_state.vectorstore = vectorstore
+    context, _ = retrieve_context(vectorstore, prompt, k=10)
+    return build_rag_system_prompt(context)
+
+
+# ── Visualization extraction ──────────────────────────────────────────────────
+
+def extract_visualization_data(response_text: str) -> dict | None:
+    """
+    Ask GPT-4o-mini whether an assistant response contains data suitable for
+    a table or chart, and extract it as structured JSON if so.
+
+    Args:
+        response_text: The full assistant response string.
+
+    Returns:
+        A dict with keys:
+            - "type": "table" | "bar_chart" | "line_chart"
+            - "title": short descriptive title
+            - "columns": list of column name strings
+            - "rows": list of lists (values matching columns order)
+        Returns None if the response is not suitable for visualization.
+    """
+    response = openai_client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "Analyse the assistant response below and decide if it contains data "
+                    "suitable for a table or chart. "
+                    "If yes, return ONLY a JSON object with these keys:\n"
                     '  "type": one of "table", "bar_chart", "line_chart"\n'
                     '  "title": a short descriptive title\n'
                     '  "columns": array of column name strings\n'
-                    '  "rows": array of arrays (each inner array matches the columns order, use numbers where applicable)\n'
-                    "If the response does NOT contain data suitable for a table or chart, "
-                    'return ONLY the JSON object {"type": "none"}. '
-                    "Do not include markdown fences or any other text."
+                    '  "rows": array of arrays (values in columns order; use numbers where applicable)\n'
+                    'If not suitable, return ONLY {"type": "none"}. '
+                    "No markdown fences or extra text."
                 ),
             },
             {"role": "user", "content": response_text},
         ],
     )
-    raw = check_response.choices[0].message.content.strip()
-    if raw.startswith("```"):
-        raw = "\n".join(
-            line for line in raw.splitlines() if not line.strip().startswith("```")
-        ).strip()
-    result = json.loads(raw)
-    if result.get("type") == "none":
-        return None
-    return result
+    result = json.loads(_strip_code_fences(response.choices[0].message.content.strip()))
+    return None if result.get("type") == "none" else result
