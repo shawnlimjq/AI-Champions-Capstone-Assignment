@@ -11,7 +11,6 @@ Features:
 - Automatically renders a table or chart when the response contains structured data.
 """
 
-import os
 import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
@@ -30,8 +29,14 @@ st.set_page_config(page_title="Chat bot", page_icon="💬")
 st.title("💬 Chat bot")
 
 load_dotenv()
-secrets = st.secrets.get("credentials", {})
-client = OpenAI(api_key=secrets.get("API_KEY", os.getenv("API_KEY", "")))
+
+
+def _get_client() -> OpenAI:
+    """Lazily create the OpenAI client at request time, not import time."""
+    if "chat_client" not in st.session_state:
+        api_key = st.secrets["credentials"]["API_KEY"]
+        st.session_state["chat_client"] = OpenAI(api_key=api_key)
+    return st.session_state["chat_client"]
 
 
 def has_uploaded_documents() -> bool:
@@ -116,7 +121,7 @@ if prompt:
     system_prompt = system_prompt_with_context(prompt)
 
     with st.chat_message("assistant"):
-        stream = client.chat.completions.create(
+        stream = _get_client().chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "system", "content": system_prompt}] + st.session_state.messages,
             stream=True,

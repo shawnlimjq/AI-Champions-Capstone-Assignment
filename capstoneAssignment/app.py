@@ -11,6 +11,17 @@ Defines all pages and enforces role-based navigation:
 
 import streamlit as st
 
+# ── Startup check: require API key ───────────────────────────────────────────
+_api_key = st.secrets.get("credentials", {}).get("API_KEY", "")
+if not _api_key:
+    st.error(
+        "⚠️ **OpenAI API key not configured.**\n\n"
+        "Please add your API key to the app secrets:\n"
+        "```\n[credentials]\nAPI_KEY = \"sk-...\"\n```\n"
+        "On Streamlit Cloud: go to **Settings → Secrets** and add the above."
+    )
+    st.stop()
+
 home_page = st.Page("pages/1_Home_Page.py", title="Home", default=True)
 about_us_page = st.Page("pages/2_About_Us.py", title="About Us")
 methodology_page = st.Page("pages/3_Methodology.py", title="Methodology")

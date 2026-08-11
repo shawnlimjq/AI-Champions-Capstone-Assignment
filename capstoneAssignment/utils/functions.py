@@ -37,8 +37,8 @@ _SUGGESTED_PROMPTS_ID = "__suggested_prompts__"
 
 
 def _get_api_key() -> str:
-    """Resolve the OpenAI API key from Streamlit secrets or environment."""
-    return st.secrets.get("credentials", {}).get("API_KEY") or os.getenv("API_KEY", "")
+    """Resolve the OpenAI API key from Streamlit secrets."""
+    return st.secrets["credentials"]["API_KEY"]
 
 
 def _get_embeddings() -> OpenAIEmbeddings:
