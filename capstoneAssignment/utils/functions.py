@@ -29,11 +29,6 @@ import streamlit as st
 load_dotenv()
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-_secrets = st.secrets.get("credentials", {})
-_api_key = _secrets.get("API_KEY", os.getenv("API_KEY", ""))
-embeddings = OpenAIEmbeddings(model="text-embedding-3-small", api_key=_api_key)
-openai_client = OpenAI(api_key=_api_key)
-
 persist_directory = "vectorstore"
 collection_name = "cpf_data"
 
@@ -41,15 +36,41 @@ _NOT_FOUND = "I couldn't find that information in the uploaded document."
 _SUGGESTED_PROMPTS_ID = "__suggested_prompts__"
 
 
+def _get_api_key() -> str:
+    """Resolve the OpenAI API key from Streamlit secrets or environment."""
+    return st.secrets.get("credentials", {}).get("API_KEY") or os.getenv("API_KEY", "")
+
+
+def _get_embeddings() -> OpenAIEmbeddings:
+    """Lazily create the embeddings instance so it's resolved at call time, not import time."""
+    if "embeddings" not in st.session_state:
+        st.session_state["embeddings"] = OpenAIEmbeddings(
+            model="text-embedding-3-small", api_key=_get_api_key()
+        )
+    return st.session_state["embeddings"]
+
+
+def _get_openai_client() -> OpenAI:
+    """Lazily create the OpenAI client so it's resolved at call time, not import time."""
+    if "openai_client" not in st.session_state:
+        st.session_state["openai_client"] = OpenAI(api_key=_get_api_key())
+    return st.session_state["openai_client"]
+
+
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 def _get_vectorstore() -> Chroma:
-    """Return a ChromaDB vectorstore instance."""
+    """Return a fresh ChromaDB vectorstore instance (internal use)."""
     return Chroma(
         collection_name=collection_name,
         persist_directory=persist_directory,
-        embedding_function=embeddings,
+        embedding_function=_get_embeddings(),
     )
+
+
+def get_vectorstore() -> Chroma:
+    """Return a ChromaDB vectorstore instance (public, for use in pages)."""
+    return _get_vectorstore()
 
 
 def _strip_code_fences(text: str) -> str:
@@ -144,7 +165,7 @@ def generate_suggested_prompts(chunks: list) -> None:
         chunks: List of LangChain Document chunks (first 10 are sampled).
     """
     sample_text = "\n\n".join(c.page_content for c in chunks[:10])
-    response = openai_client.chat.completions.create(
+    response = _get_openai_client().chat.completions.create(
         model="gpt-4o-mini",
         messages=[
             {
@@ -202,7 +223,7 @@ def generate_followup_suggestions(messages: list[dict]) -> list[str]:
     history = "\n".join(
         f"{m['role'].capitalize()}: {m['content']}" for m in messages[-6:]
     )
-    response = openai_client.chat.completions.create(
+    response = _get_openai_client().chat.completions.create(
         model="gpt-4o-mini",
         messages=[
             {
@@ -295,7 +316,7 @@ def extract_visualization_data(response_text: str) -> dict | None:
             - "rows": list of lists (values matching columns order)
         Returns None if the response is not suitable for visualization.
     """
-    response = openai_client.chat.completions.create(
+    response = _get_openai_client().chat.completions.create(
         model="gpt-4o-mini",
         messages=[
             {

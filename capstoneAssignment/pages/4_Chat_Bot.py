@@ -16,15 +16,13 @@ import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
 from openai import OpenAI
-from langchain_community.vectorstores import Chroma
 
 from utils.functions import (
     collection_name,
-    embeddings,
     extract_visualization_data,
     generate_followup_suggestions,
     get_suggested_prompts,
-    persist_directory,
+    get_vectorstore,
     system_prompt_with_context,
 )
 
@@ -39,12 +37,7 @@ client = OpenAI(api_key=secrets.get("API_KEY", os.getenv("API_KEY", "")))
 def has_uploaded_documents() -> bool:
     """Return True if ChromaDB contains at least one non-sentinel document."""
     try:
-        vectorstore = Chroma(
-            collection_name=collection_name,
-            persist_directory=persist_directory,
-            embedding_function=embeddings,
-        )
-        metadatas = vectorstore._collection.get(include=["metadatas"]).get("metadatas") or []
+        metadatas = get_vectorstore()._collection.get(include=["metadatas"]).get("metadatas") or []
         return any(m.get("type") != "suggested_prompts" for m in metadatas)
     except Exception:
         return False

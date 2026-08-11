@@ -15,13 +15,11 @@ import io
 from pathlib import Path
 
 import streamlit as st
-from langchain_community.vectorstores import Chroma
 
 from utils.functions import (
     collection_name,
-    embeddings,
     get_suggested_prompts,
-    persist_directory,
+    get_vectorstore,
     process_uploaded_files,
 )
 
@@ -44,12 +42,7 @@ def get_chroma_upload_info() -> tuple:
         Tuple of (latest_uploaded_at: str | None, file_names: list[str]).
     """
     try:
-        vectorstore = Chroma(
-            collection_name=collection_name,
-            persist_directory=persist_directory,
-            embedding_function=embeddings,
-        )
-        metadatas = vectorstore._collection.get(include=["metadatas"]).get("metadatas") or []
+        metadatas = get_vectorstore()._collection.get(include=["metadatas"]).get("metadatas") or []
         if not metadatas:
             return None, []
         file_names = sorted({
@@ -67,11 +60,7 @@ col_reset, col_sample = st.columns([1, 2])
 
 with col_reset:
     if st.button("Reset uploads"):
-        vectorstore = Chroma(
-            collection_name=collection_name,
-            persist_directory=persist_directory,
-            embedding_function=embeddings,
-        )
+        vectorstore = get_vectorstore()
         existing_names = {
             item.name if hasattr(item, "name") else item
             for item in vectorstore._client.list_collections()
@@ -80,6 +69,7 @@ with col_reset:
             vectorstore._client.delete_collection(collection_name)
         st.session_state.uploaded_file_signature = None
         st.session_state.pop("vectorstore", None)
+        st.session_state.pop("embeddings", None)
         st.session_state.file_uploader_key += 1
         st.rerun()
 
