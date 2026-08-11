@@ -44,6 +44,7 @@ if st.session_state.logged_in:
     )
     logout_clicked = st.button("Logout")
     if logout_clicked:
+        st.session_state.clear()
         st.session_state.logged_in = False
         st.session_state.login_error = ""
         st.session_state.login_role = ""
@@ -95,12 +96,16 @@ else:
             st.session_state.login_role = "admin"
             st.session_state.current_user = username
             st.session_state.login_error = ""
+            st.session_state.messages = []
+            st.session_state.dynamic_suggestions = None
             st.rerun()
         elif username in regular_ids and password == regular_password:
             st.session_state.logged_in = True
             st.session_state.login_role = "regular"
             st.session_state.current_user = username
             st.session_state.login_error = ""
+            st.session_state.messages = []
+            st.session_state.dynamic_suggestions = None
             st.rerun()
         else:
             if username in admin_ids or username in regular_ids:
